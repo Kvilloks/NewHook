@@ -1,3 +1,4 @@
+#include "pch.h"
 #include <windows.h>
 #include <wininet.h>
 #include <winhttp.h>
@@ -14,53 +15,53 @@
 // --- COMMON SIGNATURES ---
 
 // Интернет/HTTP
-typedef HINTERNET(WINAPI *pInternetOpenUrlA)(HINTERNET, LPCSTR, LPCSTR, DWORD, DWORD, DWORD_PTR);
-typedef HINTERNET(WINAPI *pInternetOpenUrlW)(HINTERNET, LPCWSTR, LPCWSTR, DWORD, DWORD, DWORD_PTR);
-typedef BOOL(WINAPI *pHttpSendRequestA)(HINTERNET, LPCSTR, DWORD, LPVOID, DWORD);
-typedef BOOL(WINAPI *pHttpSendRequestW)(HINTERNET, LPCWSTR, DWORD, LPVOID, DWORD);
-typedef BOOL(WINAPI *pInternetReadFile)(HINTERNET, LPVOID, DWORD, LPDWORD);
-typedef BOOL(WINAPI *pWinHttpSendRequest)(HINTERNET, LPCWSTR, DWORD, LPVOID, DWORD, DWORD, DWORD_PTR);
-typedef BOOL(WINAPI *pWinHttpReadData)(HINTERNET, LPVOID, DWORD, LPDWORD);
+typedef HINTERNET(WINAPI* pInternetOpenUrlA)(HINTERNET, LPCSTR, LPCSTR, DWORD, DWORD, DWORD_PTR);
+typedef HINTERNET(WINAPI* pInternetOpenUrlW)(HINTERNET, LPCWSTR, LPCWSTR, DWORD, DWORD, DWORD_PTR);
+typedef BOOL(WINAPI* pHttpSendRequestA)(HINTERNET, LPCSTR, DWORD, LPVOID, DWORD);
+typedef BOOL(WINAPI* pHttpSendRequestW)(HINTERNET, LPCWSTR, DWORD, LPVOID, DWORD);
+typedef BOOL(WINAPI* pInternetReadFile)(HINTERNET, LPVOID, DWORD, LPDWORD);
+typedef BOOL(WINAPI* pWinHttpSendRequest)(HINTERNET, LPCWSTR, DWORD, LPVOID, DWORD, DWORD, DWORD_PTR);
+typedef BOOL(WINAPI* pWinHttpReadData)(HINTERNET, LPVOID, DWORD, LPDWORD);
 
 // Сравнение ключа
-typedef int(__cdecl *pStrcmp)(const char*, const char*);
-typedef int(__cdecl *pMemcmp)(const void*, const void*, size_t);
+typedef int(__cdecl* pStrcmp)(const char*, const char*);
+typedef int(__cdecl* pMemcmp)(const void*, const void*, size_t);
 
 // UI
-typedef UINT(WINAPI *pGetDlgItemTextA)(HWND, int, LPSTR, int);
-typedef UINT(WINAPI *pGetDlgItemTextW)(HWND, int, LPWSTR, int);
-typedef BOOL(WINAPI *pSetWindowTextA)(HWND, LPCSTR);
-typedef BOOL(WINAPI *pSetWindowTextW)(HWND, LPCWSTR);
+typedef UINT(WINAPI* pGetDlgItemTextA)(HWND, int, LPSTR, int);
+typedef UINT(WINAPI* pGetDlgItemTextW)(HWND, int, LPWSTR, int);
+typedef BOOL(WINAPI* pSetWindowTextA)(HWND, LPCSTR);
+typedef BOOL(WINAPI* pSetWindowTextW)(HWND, LPCWSTR);
 
 // Файлы
-typedef BOOL(WINAPI *pWriteFile)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
-typedef BOOL(WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
+typedef BOOL(WINAPI* pWriteFile)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
+typedef BOOL(WINAPI* pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 
 // Крипто/WinAPI
-typedef BOOL(WINAPI *pLogonUserA)(LPCSTR, LPCSTR, LPCSTR, DWORD, DWORD, PHANDLE);
-typedef BOOL(WINAPI *pLogonUserW)(LPCWSTR, LPCWSTR, LPCWSTR, DWORD, DWORD, PHANDLE);
-typedef BOOL(WINAPI *pCredWriteA)(PCREDENTIALA, DWORD);
-typedef BOOL(WINAPI *pCredWriteW)(PCREDENTIALW, DWORD);
-typedef BOOL(WINAPI *pCryptAcquireContextA)(HCRYPTPROV_PTR, LPCSTR, LPCSTR, DWORD, DWORD);
-typedef BOOL(WINAPI *pCryptAcquireContextW)(HCRYPTPROV_PTR, LPCWSTR, LPCWSTR, DWORD, DWORD);
-typedef BOOL(WINAPI *pCryptReleaseContext)(HCRYPTPROV, DWORD);
-typedef BOOL(WINAPI *pCryptDecrypt)(HCRYPTKEY, HCRYPTHASH, BOOL, DWORD, BYTE*, DWORD*);
-typedef BOOL(WINAPI *pCryptEncrypt)(HCRYPTKEY, HCRYPTHASH, BOOL, DWORD, BYTE*, DWORD*, DWORD);
-typedef BOOL(WINAPI *pCryptVerifySignature)(HCRYPTHASH, const BYTE*, DWORD, HCRYPTKEY, LPCSTR, DWORD);
-typedef SECURITY_STATUS(WINAPI *pAcquireCredentialsHandleA)(
+typedef BOOL(WINAPI* pLogonUserA)(LPCSTR, LPCSTR, LPCSTR, DWORD, DWORD, PHANDLE);
+typedef BOOL(WINAPI* pLogonUserW)(LPCWSTR, LPCWSTR, LPCWSTR, DWORD, DWORD, PHANDLE);
+typedef BOOL(WINAPI* pCredWriteA)(PCREDENTIALA, DWORD);
+typedef BOOL(WINAPI* pCredWriteW)(PCREDENTIALW, DWORD);
+typedef BOOL(WINAPI* pCryptAcquireContextA)(HCRYPTPROV*, LPCSTR, LPCSTR, DWORD, DWORD);
+typedef BOOL(WINAPI* pCryptAcquireContextW)(HCRYPTPROV*, LPCWSTR, LPCWSTR, DWORD, DWORD);
+typedef BOOL(WINAPI* pCryptReleaseContext)(HCRYPTPROV, DWORD);
+typedef BOOL(WINAPI* pCryptDecrypt)(HCRYPTKEY, HCRYPTHASH, BOOL, DWORD, BYTE*, DWORD*);
+typedef BOOL(WINAPI* pCryptEncrypt)(HCRYPTKEY, HCRYPTHASH, BOOL, DWORD, BYTE*, DWORD*, DWORD);
+typedef BOOL(WINAPI* pCryptVerifySignature)(HCRYPTHASH, const BYTE*, DWORD, HCRYPTKEY, LPCSTR, DWORD);
+typedef SECURITY_STATUS(WINAPI* pAcquireCredentialsHandleA)(
     LPSTR, LPSTR, ULONG, PLUID, PVOID, SEC_GET_KEY_FN, PVOID, PCredHandle, PTimeStamp);
-typedef SECURITY_STATUS(WINAPI *pAcquireCredentialsHandleW)(
+typedef SECURITY_STATUS(WINAPI* pAcquireCredentialsHandleW)(
     LPWSTR, LPWSTR, ULONG, PLUID, PVOID, SEC_GET_KEY_FN, PVOID, PCredHandle, PTimeStamp);
-typedef SECURITY_STATUS(WINAPI *pAcceptSecurityContext)(
+typedef SECURITY_STATUS(WINAPI* pAcceptSecurityContext)(
     PCredHandle, PCtxtHandle, PSecBufferDesc, ULONG, ULONG, PCtxtHandle, PSecBufferDesc, PULONG, PTimeStamp);
-typedef SECURITY_STATUS(WINAPI *pInitializeSecurityContextA)(
+typedef SECURITY_STATUS(WINAPI* pInitializeSecurityContextA)(
     PCredHandle, PCtxtHandle, SEC_CHAR*, ULONG, ULONG, ULONG, PSecBufferDesc, ULONG, PCtxtHandle, PSecBufferDesc, PULONG, PTimeStamp);
-typedef SECURITY_STATUS(WINAPI *pInitializeSecurityContextW)(
+typedef SECURITY_STATUS(WINAPI* pInitializeSecurityContextW)(
     PCredHandle, PCtxtHandle, SEC_WCHAR*, ULONG, ULONG, ULONG, PSecBufferDesc, ULONG, PCtxtHandle, PSecBufferDesc, PULONG, PTimeStamp);
-typedef SECURITY_STATUS(WINAPI *pImpersonateSecurityContext)(PCtxtHandle);
-typedef SECURITY_STATUS(WINAPI *pRevertSecurityContext)(PCtxtHandle);
-typedef BOOL(WINAPI *pAuthzInitializeResourceManager)(DWORD, PFN_AUTHZ_DYNAMIC_ACCESS_CHECK, PFN_AUTHZ_COMPUTE_DYNAMIC_GROUPS, PFN_AUTHZ_FREE_DYNAMIC_GROUPS, PCWSTR, PAUTHZ_RESOURCE_MANAGER_HANDLE);
-typedef BOOL(WINAPI *pAuthzAccessCheck)(DWORD, AUTHZ_CLIENT_CONTEXT_HANDLE, PAUTHZ_ACCESS_REQUEST, AUTHZ_AUDIT_EVENT_HANDLE, PSECURITY_DESCRIPTOR, PSECURITY_DESCRIPTOR*, DWORD, PAUTHZ_ACCESS_REPLY, PAUTHZ_ACCESS_CHECK_RESULTS_HANDLE);
+typedef SECURITY_STATUS(WINAPI* pImpersonateSecurityContext)(PCtxtHandle);
+typedef SECURITY_STATUS(WINAPI* pRevertSecurityContext)(PCtxtHandle);
+typedef BOOL(WINAPI* pAuthzInitializeResourceManager)(DWORD, PFN_AUTHZ_DYNAMIC_ACCESS_CHECK, PFN_AUTHZ_COMPUTE_DYNAMIC_GROUPS, PFN_AUTHZ_FREE_DYNAMIC_GROUPS, PCWSTR, PAUTHZ_RESOURCE_MANAGER_HANDLE);
+typedef BOOL(WINAPI* pAuthzAccessCheck)(DWORD, AUTHZ_CLIENT_CONTEXT_HANDLE, PAUTHZ_ACCESS_REQUEST, AUTHZ_AUDIT_EVENT_HANDLE, PSECURITY_DESCRIPTOR, PSECURITY_DESCRIPTOR*, DWORD, PAUTHZ_ACCESS_REPLY, PAUTHZ_ACCESS_CHECK_RESULTS_HANDLE);
 
 // --- HOOKED FUNCTION POINTERS ---
 pInternetOpenUrlA   fpInternetOpenUrlA = NULL;
@@ -107,12 +108,12 @@ pAuthzAccessCheck    fpAuthzAccessCheck = NULL;
 // Интернет/HTTP
 HINTERNET WINAPI Hooked_InternetOpenUrlA(HINTERNET hInternet, LPCSTR lpszUrl, LPCSTR lpszHeaders,
     DWORD dwHeadersLength, DWORD dwFlags, DWORD_PTR dwContext) {
-    std::cout << "[HOOK] InternetOpenUrlA: " << (lpszUrl?lpszUrl:"(null)") << std::endl;
+    std::cout << "[HOOK] InternetOpenUrlA: " << (lpszUrl ? lpszUrl : "(null)") << std::endl;
     return fpInternetOpenUrlA(hInternet, lpszUrl, lpszHeaders, dwHeadersLength, dwFlags, dwContext);
 }
 HINTERNET WINAPI Hooked_InternetOpenUrlW(HINTERNET hInternet, LPCWSTR lpszUrl, LPCWSTR lpszHeaders,
     DWORD dwHeadersLength, DWORD dwFlags, DWORD_PTR dwContext) {
-    std::wcout << L"[HOOK] InternetOpenUrlW: " << (lpszUrl?lpszUrl:L"(null)") << std::endl;
+    std::wcout << L"[HOOK] InternetOpenUrlW: " << (lpszUrl ? lpszUrl : L"(null)") << std::endl;
     return fpInternetOpenUrlW(hInternet, lpszUrl, lpszHeaders, dwHeadersLength, dwFlags, dwContext);
 }
 BOOL WINAPI Hooked_HttpSendRequestA(HINTERNET hRequest, LPCSTR lpszHeaders, DWORD dwHeadersLength,
@@ -141,7 +142,7 @@ BOOL WINAPI Hooked_WinHttpReadData(HINTERNET hRequest, LPVOID lpBuffer, DWORD dw
 
 // Сравнение ключа
 int __cdecl Hooked_Strcmp(const char* s1, const char* s2) {
-    std::cout << "[HOOK] strcmp: " << (s1?s1:"(null)") << " vs " << (s2?s2:"(null)") << std::endl;
+    std::cout << "[HOOK] strcmp: " << (s1 ? s1 : "(null)") << " vs " << (s2 ? s2 : "(null)") << std::endl;
     return fpStrcmp(s1, s2);
 }
 int __cdecl Hooked_Memcmp(const void* s1, const void* s2, size_t len) {
@@ -161,11 +162,11 @@ UINT WINAPI Hooked_GetDlgItemTextW(HWND hDlg, int nIDDlgItem, LPWSTR lpString, i
     return result;
 }
 BOOL WINAPI Hooked_SetWindowTextA(HWND hWnd, LPCSTR lpString) {
-    std::cout << "[HOOK] SetWindowTextA: " << (lpString?lpString:"(null)") << std::endl;
+    std::cout << "[HOOK] SetWindowTextA: " << (lpString ? lpString : "(null)") << std::endl;
     return fpSetWindowTextA(hWnd, lpString);
 }
 BOOL WINAPI Hooked_SetWindowTextW(HWND hWnd, LPCWSTR lpString) {
-    std::wcout << L"[HOOK] SetWindowTextW: " << (lpString?lpString:L"(null)") << std::endl;
+    std::wcout << L"[HOOK] SetWindowTextW: " << (lpString ? lpString : L"(null)") << std::endl;
     return fpSetWindowTextW(hWnd, lpString);
 }
 
@@ -196,11 +197,11 @@ BOOL WINAPI Hooked_CredWriteW(PCREDENTIALW cred, DWORD flags) {
     std::wcout << L"[HOOK] CredWriteW" << std::endl;
     return fpCredWriteW(cred, flags);
 }
-BOOL WINAPI Hooked_CryptAcquireContextA(HCRYPTPROV_PTR phProv, LPCSTR pszContainer, LPCSTR pszProvider, DWORD dwProvType, DWORD dwFlags) {
+BOOL WINAPI Hooked_CryptAcquireContextA(HCRYPTPROV* phProv, LPCSTR pszContainer, LPCSTR pszProvider, DWORD dwProvType, DWORD dwFlags) {
     std::cout << "[HOOK] CryptAcquireContextA" << std::endl;
     return fpCryptAcquireContextA(phProv, pszContainer, pszProvider, dwProvType, dwFlags);
 }
-BOOL WINAPI Hooked_CryptAcquireContextW(HCRYPTPROV_PTR phProv, LPCWSTR pszContainer, LPCWSTR pszProvider, DWORD dwProvType, DWORD dwFlags) {
+BOOL WINAPI Hooked_CryptAcquireContextW(HCRYPTPROV* phProv, LPCWSTR pszContainer, LPCWSTR pszProvider, DWORD dwProvType, DWORD dwFlags) {
     std::wcout << L"[HOOK] CryptAcquireContextW" << std::endl;
     return fpCryptAcquireContextW(phProv, pszContainer, pszProvider, dwProvType, dwFlags);
 }
@@ -233,19 +234,19 @@ SECURITY_STATUS WINAPI Hooked_AcquireCredentialsHandleW(
     return fpAcquireCredentialsHandleW(pszPrincipal, pszPackage, fCredentialUse, pvLogonId, pAuthData, pGetKeyFn, pvGetKeyArgument, phCredential, ptsExpiry);
 }
 SECURITY_STATUS WINAPI Hooked_AcceptSecurityContext(PCredHandle phCredential, PCtxtHandle phContext, PSecBufferDesc pInput,
-     ULONG fContextReq, ULONG TargetDataRep, PCtxtHandle phNewContext, PSecBufferDesc pOutput, PULONG pfContextAttr, PTimeStamp ptsExpiry) {
+    ULONG fContextReq, ULONG TargetDataRep, PCtxtHandle phNewContext, PSecBufferDesc pOutput, PULONG pfContextAttr, PTimeStamp ptsExpiry) {
     std::cout << "[HOOK] AcceptSecurityContext" << std::endl;
     return fpAcceptSecurityContext(phCredential, phContext, pInput, fContextReq, TargetDataRep, phNewContext, pOutput, pfContextAttr, ptsExpiry);
 }
 SECURITY_STATUS WINAPI Hooked_InitializeSecurityContextA(PCredHandle phCredential, PCtxtHandle phContext, SEC_CHAR* pszTargetName,
-     ULONG fContextReq, ULONG Reserved1, ULONG TargetDataRep, PSecBufferDesc pInput,
-     ULONG Reserved2, PCtxtHandle phNewContext, PSecBufferDesc pOutput, PULONG pfContextAttr, PTimeStamp ptsExpiry) {
+    ULONG fContextReq, ULONG Reserved1, ULONG TargetDataRep, PSecBufferDesc pInput,
+    ULONG Reserved2, PCtxtHandle phNewContext, PSecBufferDesc pOutput, PULONG pfContextAttr, PTimeStamp ptsExpiry) {
     std::cout << "[HOOK] InitializeSecurityContextA" << std::endl;
     return fpInitializeSecurityContextA(phCredential, phContext, pszTargetName, fContextReq, Reserved1, TargetDataRep, pInput, Reserved2, phNewContext, pOutput, pfContextAttr, ptsExpiry);
 }
 SECURITY_STATUS WINAPI Hooked_InitializeSecurityContextW(PCredHandle phCredential, PCtxtHandle phContext, SEC_WCHAR* pszTargetName,
-     ULONG fContextReq, ULONG Reserved1, ULONG TargetDataRep, PSecBufferDesc pInput,
-     ULONG Reserved2, PCtxtHandle phNewContext, PSecBufferDesc pOutput, PULONG pfContextAttr, PTimeStamp ptsExpiry) {
+    ULONG fContextReq, ULONG Reserved1, ULONG TargetDataRep, PSecBufferDesc pInput,
+    ULONG Reserved2, PCtxtHandle phNewContext, PSecBufferDesc pOutput, PULONG pfContextAttr, PTimeStamp ptsExpiry) {
     std::wcout << L"[HOOK] InitializeSecurityContextW" << std::endl;
     return fpInitializeSecurityContextW(phCredential, phContext, pszTargetName, fContextReq, Reserved1, TargetDataRep, pInput, Reserved2, phNewContext, pOutput, pfContextAttr, ptsExpiry);
 }
