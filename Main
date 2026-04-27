@@ -1,137 +1,124 @@
-#define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
 #include <wininet.h>
 #include <winhttp.h>
-#include <stdio.h>
+#include <shlwapi.h>
 #include <tchar.h>
+#include <iostream>
+#include <vector>
 #include "MinHook.h"
 
-typedef BOOL(WINAPI* LPFN_InternetReadFile)(HINTERNET, LPVOID, DWORD, LPDWORD);
-typedef HINTERNET(WINAPI* LPFN_InternetOpenUrlA)(HINTERNET, LPCSTR, LPCSTR, DWORD, DWORD, DWORD_PTR);
-typedef HINTERNET(WINAPI* LPFN_InternetOpenUrlW)(HINTERNET, LPCWSTR, LPCWSTR, DWORD, DWORD, DWORD_PTR);
-typedef BOOL(WINAPI* LPFN_HttpSendRequestA)(HINTERNET, LPCSTR, DWORD, LPVOID, DWORD);
-typedef BOOL(WINAPI* LPFN_HttpSendRequestW)(HINTERNET, LPCWSTR, DWORD, LPVOID, DWORD);
-typedef BOOL(WINAPI* LPFN_WinHttpSendRequest)(HINTERNET, LPCWSTR, DWORD, LPCWSTR, DWORD, DWORD, DWORD_PTR);
-typedef BOOL(WINAPI* LPFN_WinHttpReadData)(HINTERNET, LPVOID, DWORD, LPDWORD);
+// --- COMMON SIGNATURES ---
+typedef BOOL(WINAPI *pInternetOpenUrlA)(HINTERNET, LPCSTR, LPCSTR, DWORD, DWORD, DWORD_PTR);
+typedef BOOL(WINAPI *pInternetOpenUrlW)(HINTERNET, LPCWSTR, LPCWSTR, DWORD, DWORD, DWORD_PTR);
+typedef BOOL(WINAPI *pHttpSendRequestA)(HINTERNET, LPCSTR, DWORD, LPVOID, DWORD);
+typedef BOOL(WINAPI *pHttpSendRequestW)(HINTERNET, LPCWSTR, DWORD, LPVOID, DWORD);
+typedef BOOL(WINAPI *pInternetReadFile)(HINTERNET, LPVOID, DWORD, LPDWORD);
+typedef BOOL(WINAPI *pWinHttpSendRequest)(
+    HINTERNET hRequest, LPCWSTR pwszHeaders, DWORD dwHeadersLength,
+    LPVOID lpOptional, DWORD dwOptionalLength, DWORD dwTotalLength, DWORD_PTR dwContext);
+typedef BOOL(WINAPI *pWinHttpReadData)(
+    HINTERNET hRequest, LPVOID lpBuffer, DWORD dwBytesToRead, LPDWORD lpdwBytesRead);
 
-typedef int(__cdecl *LPFN_strcmp)(const char*, const char*);
-typedef int(__cdecl *LPFN_memcmp)(const void*, const void*, size_t);
+typedef int (__cdecl *pStrcmp)(const char*, const char*);
+typedef int (__cdecl *pMemcmp)(const void*, const void*, size_t);
 
-typedef UINT(WINAPI* LPFN_GetDlgItemTextA)(HWND, int, LPSTR, int);
-typedef UINT(WINAPI* LPFN_GetDlgItemTextW)(HWND, int, LPWSTR, int);
-typedef BOOL(WINAPI* LPFN_SetWindowTextA)(HWND, LPCSTR);
-typedef BOOL(WINAPI* LPFN_SetWindowTextW)(HWND, LPCWSTR);
+typedef UINT(WINAPI *pGetDlgItemTextA)(HWND, int, LPSTR, int);
+typedef UINT(WINAPI *pGetDlgItemTextW)(HWND, int, LPWSTR, int);
+typedef BOOL(WINAPI *pSetWindowTextA)(HWND, LPCSTR);
+typedef BOOL(WINAPI *pSetWindowTextW)(HWND, LPCWSTR);
 
-typedef BOOL(WINAPI* LPFN_WriteFile)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
-typedef BOOL(WINAPI* LPFN_ReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
+typedef BOOL(WINAPI *pWriteFile)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
+typedef BOOL(WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 
-// Реализация перехватов (логирование для примера)
+// --- ADDITIONAL CREDENTIAL/APPLICATION API ---
+typedef BOOL (WINAPI *pLogonUserA)(LPCSTR, LPCSTR, LPCSTR, DWORD, DWORD, PHANDLE);
+typedef BOOL (WINAPI *pLogonUserW)(LPCWSTR, LPCWSTR, LPCWSTR, DWORD, DWORD, PHANDLE);
+typedef BOOL (WINAPI *pCredWriteW)(PCREDENTIALW, DWORD);
+typedef BOOL (WINAPI *pCredWriteA)(PCREDENTIALA, DWORD);
 
-BOOL WINAPI hk_InternetReadFile(HINTERNET h, LPVOID buf, DWORD len, LPDWORD read) {
-    printf("[HOOK] InternetReadFile called\n");
-    static LPFN_InternetReadFile orig = (LPFN_InternetReadFile)MH_GetOriginalFunction(&hk_InternetReadFile);
-    return orig(h, buf, len, read);
-}
-HINTERNET WINAPI hk_InternetOpenUrlA(HINTERNET h, LPCSTR url, LPCSTR headers, DWORD hl, DWORD fl, DWORD_PTR ctx) {
-    printf("[HOOK] InternetOpenUrlA: %s\n", url);
-    static LPFN_InternetOpenUrlA orig = (LPFN_InternetOpenUrlA)MH_GetOriginalFunction(&hk_InternetOpenUrlA);
-    return orig(h, url, headers, hl, fl, ctx);
-}
-HINTERNET WINAPI hk_InternetOpenUrlW(HINTERNET h, LPCWSTR url, LPCWSTR headers, DWORD hl, DWORD fl, DWORD_PTR ctx) {
-    wprintf(L"[HOOK] InternetOpenUrlW: %s\n", url);
-    static LPFN_InternetOpenUrlW orig = (LPFN_InternetOpenUrlW)MH_GetOriginalFunction(&hk_InternetOpenUrlW);
-    return orig(h, url, headers, hl, fl, ctx);
-}
-BOOL WINAPI hk_HttpSendRequestA(HINTERNET h, LPCSTR hdr, DWORD lh, LPVOID opt, DWORD lo) {
-    printf("[HOOK] HttpSendRequestA: header=%s\n", hdr ? hdr : "");
-    static LPFN_HttpSendRequestA orig = (LPFN_HttpSendRequestA)MH_GetOriginalFunction(&hk_HttpSendRequestA);
-    return orig(h, hdr, lh, opt, lo);
-}
-BOOL WINAPI hk_HttpSendRequestW(HINTERNET h, LPCWSTR hdr, DWORD lh, LPVOID opt, DWORD lo) {
-    wprintf(L"[HOOK] HttpSendRequestW: header=%ls\n", hdr ? hdr : L"");
-    static LPFN_HttpSendRequestW orig = (LPFN_HttpSendRequestW)MH_GetOriginalFunction(&hk_HttpSendRequestW);
-    return orig(h, hdr, lh, opt, lo);
-}
-BOOL WINAPI hk_WinHttpSendRequest(HINTERNET h, LPCWSTR hdrs, DWORD hl, LPCWSTR opt, DWORD ol, DWORD tc, DWORD_PTR ctx) {
-    wprintf(L"[HOOK] WinHttpSendRequest: headers=%ls\n", hdrs ? hdrs : L"");
-    static LPFN_WinHttpSendRequest orig = (LPFN_WinHttpSendRequest)MH_GetOriginalFunction(&hk_WinHttpSendRequest);
-    return orig(h, hdrs, hl, opt, ol, tc, ctx);
-}
-BOOL WINAPI hk_WinHttpReadData(HINTERNET h, LPVOID buf, DWORD len, LPDWORD read) {
-    printf("[HOOK] WinHttpReadData\n");
-    static LPFN_WinHttpReadData orig = (LPFN_WinHttpReadData)MH_GetOriginalFunction(&hk_WinHttpReadData);
-    return orig(h, buf, len, read);
-}
-int __cdecl hk_strcmp(const char* a, const char* b) {
-    printf("[HOOK] strcmp: '%s' vs '%s'\n", a, b);
-    static LPFN_strcmp orig = (LPFN_strcmp)MH_GetOriginalFunction(&hk_strcmp);
-    return orig(a, b);
-}
-int __cdecl hk_memcmp(const void* a, const void* b, size_t cnt) {
-    printf("[HOOK] memcmp called: %zu bytes\n", cnt);
-    static LPFN_memcmp orig = (LPFN_memcmp)MH_GetOriginalFunction(&hk_memcmp);
-    return orig(a, b, cnt);
-}
-UINT WINAPI hk_GetDlgItemTextA(HWND wnd, int id, LPSTR buf, int sz) {
-    UINT ret = ((LPFN_GetDlgItemTextA)MH_GetOriginalFunction(&hk_GetDlgItemTextA))(wnd, id, buf, sz);
-    printf("[HOOK] GetDlgItemTextA id=%d, result='%s'\n", id, buf);
-    return ret;
-}
-UINT WINAPI hk_GetDlgItemTextW(HWND wnd, int id, LPWSTR buf, int sz) {
-    UINT ret = ((LPFN_GetDlgItemTextW)MH_GetOriginalFunction(&hk_GetDlgItemTextW))(wnd, id, buf, sz);
-    wprintf(L"[HOOK] GetDlgItemTextW id=%d, result='%ls'\n", id, buf);
-    return ret;
-}
-BOOL WINAPI hk_SetWindowTextA(HWND wnd, LPCSTR txt) {
-    printf("[HOOK] SetWindowTextA: %s\n", txt);
-    return ((LPFN_SetWindowTextA)MH_GetOriginalFunction(&hk_SetWindowTextA))(wnd, txt);
-}
-BOOL WINAPI hk_SetWindowTextW(HWND wnd, LPCWSTR txt) {
-    wprintf(L"[HOOK] SetWindowTextW: %ls\n", txt);
-    return ((LPFN_SetWindowTextW)MH_GetOriginalFunction(&hk_SetWindowTextW))(wnd, txt);
-}
-BOOL WINAPI hk_WriteFile(HANDLE h, LPCVOID buf, DWORD sz, LPDWORD wr, LPOVERLAPPED ovl) {
-    printf("[HOOK] WriteFile: %u bytes\n", sz);
-    return ((LPFN_WriteFile)MH_GetOriginalFunction(&hk_WriteFile))(h, buf, sz, wr, ovl);
-}
-BOOL WINAPI hk_ReadFile(HANDLE h, LPVOID buf, DWORD sz, LPDWORD rd, LPOVERLAPPED ovl) {
-    printf("[HOOK] ReadFile: %u bytes\n", sz);
-    return ((LPFN_ReadFile)MH_GetOriginalFunction(&hk_ReadFile))(h, buf, sz, rd, ovl);
+// Add more typedefs here as per the detected modules/DLLs, if they export credential/util APIs.
+
+// --- HOOKED FUNCTION POINTERS ---
+pInternetOpenUrlA  fpInternetOpenUrlA  = NULL;
+pInternetOpenUrlW  fpInternetOpenUrlW  = NULL;
+pHttpSendRequestA  fpHttpSendRequestA  = NULL;
+pHttpSendRequestW  fpHttpSendRequestW  = NULL;
+pInternetReadFile  fpInternetReadFile  = NULL;
+pWinHttpSendRequest fpWinHttpSendRequest = NULL;
+pWinHttpReadData   fpWinHttpReadData   = NULL;
+pStrcmp            fpStrcmp            = NULL;
+pMemcmp            fpMemcmp            = NULL;
+pGetDlgItemTextA   fpGetDlgItemTextA   = NULL;
+pGetDlgItemTextW   fpGetDlgItemTextW   = NULL;
+pSetWindowTextA    fpSetWindowTextA    = NULL;
+pSetWindowTextW    fpSetWindowTextW    = NULL;
+pWriteFile         fpWriteFile         = NULL;
+pReadFile          fpReadFile          = NULL;
+pLogonUserA        fpLogonUserA        = NULL;
+pLogonUserW        fpLogonUserW        = NULL;
+pCredWriteW        fpCredWriteW        = NULL;
+pCredWriteA        fpCredWriteA        = NULL;
+
+// --- HOOKED FUNCTION EXAMPLES ---
+
+BOOL WINAPI Hooked_InternetOpenUrlA(HINTERNET hInternet, LPCSTR lpszUrl, LPCSTR lpszHeaders, DWORD dwHeadersLength, DWORD dwFlags, DWORD_PTR dwContext) {
+    std::cout << "[HOOK] InternetOpenUrlA: " << lpszUrl << std::endl;
+    // Add logic/monitoring here...
+    return fpInternetOpenUrlA(hInternet, lpszUrl, lpszHeaders, dwHeadersLength, dwFlags, dwContext);
 }
 
-void InstallHooks() {
+BOOL WINAPI Hooked_HttpSendRequestA(HINTERNET hRequest, LPCSTR lpszHeaders, DWORD dwHeadersLength, LPVOID lpOptional, DWORD dwOptionalLength) {
+    std::cout << "[HOOK] HttpSendRequestA" << std::endl;
+    // Add logic/monitoring here...
+    return fpHttpSendRequestA(hRequest, lpszHeaders, dwHeadersLength, lpOptional, dwOptionalLength);
+}
+
+int __cdecl Hooked_Strcmp(const char* s1, const char* s2) {
+    std::cout << "[HOOK] strcmp: " << s1 << " vs " << s2 << std::endl;
+    return fpStrcmp(s1, s2);
+}
+
+UINT WINAPI Hooked_GetDlgItemTextA(HWND hDlg, int nIDDlgItem, LPSTR lpString, int nMaxCount) {
+    UINT result = fpGetDlgItemTextA(hDlg, nIDDlgItem, lpString, nMaxCount);
+    std::cout << "[HOOK] GetDlgItemTextA: " << lpString << std::endl;
+    return result;
+}
+
+BOOL WINAPI Hooked_WriteFile(HANDLE hFile, LPCVOID lpBuffer, DWORD nNumberOfBytesToWrite, LPDWORD lpNumberOfBytesWritten, LPOVERLAPPED lpOverlapped) {
+    std::cout << "[HOOK] WriteFile called!" << std::endl;
+    return fpWriteFile(hFile, lpBuffer, nNumberOfBytesToWrite, lpNumberOfBytesWritten, lpOverlapped);
+}
+
+// Repeat for all other targeted APIs...
+// ...
+
+// --- INIT HOOKS ---
+void SetHooks() {
     MH_Initialize();
-    // Перехват функций Internet/WinHTTP
-    MH_CreateHookApi(L"wininet.dll", "InternetOpenUrlA", hk_InternetOpenUrlA, NULL);
-    MH_CreateHookApi(L"wininet.dll", "InternetOpenUrlW", hk_InternetOpenUrlW, NULL);
-    MH_CreateHookApi(L"wininet.dll", "InternetReadFile", hk_InternetReadFile, NULL);
-    MH_CreateHookApi(L"wininet.dll", "HttpSendRequestA", hk_HttpSendRequestA, NULL);
-    MH_CreateHookApi(L"wininet.dll", "HttpSendRequestW", hk_HttpSendRequestW, NULL);
-    MH_CreateHookApi(L"winhttp.dll", "WinHttpSendRequest", hk_WinHttpSendRequest, NULL);
-    MH_CreateHookApi(L"winhttp.dll", "WinHttpReadData", hk_WinHttpReadData, NULL);
-    // Перехват функций сравнения
-    MH_CreateHook(&strcmp, hk_strcmp, NULL);
-    MH_CreateHook(&memcmp, hk_memcmp, NULL);
-    // UI
-    MH_CreateHookApi(L"user32.dll", "GetDlgItemTextA", hk_GetDlgItemTextA, NULL);
-    MH_CreateHookApi(L"user32.dll", "GetDlgItemTextW", hk_GetDlgItemTextW, NULL);
-    MH_CreateHookApi(L"user32.dll", "SetWindowTextA", hk_SetWindowTextA, NULL);
-    MH_CreateHookApi(L"user32.dll", "SetWindowTextW", hk_SetWindowTextW, NULL);
-    // Работа с файлами
-    MH_CreateHookApi(L"kernel32.dll", "WriteFile", hk_WriteFile, NULL);
-    MH_CreateHookApi(L"kernel32.dll", "ReadFile", hk_ReadFile, NULL);
-    // Активируем все хуки.
+
+    // WinINet
+    MH_CreateHook(&InternetOpenUrlA, &Hooked_InternetOpenUrlA, reinterpret_cast<LPVOID*>(&fpInternetOpenUrlA));
+    MH_CreateHook(&HttpSendRequestA, &Hooked_HttpSendRequestA, reinterpret_cast<LPVOID*>(&fpHttpSendRequestA));
+    // Add W variants, WinHTTP, and so on, as desired.
+
+    // Strings (C Runtime)
+    MH_CreateHook(&_strcmp, &Hooked_Strcmp, reinterpret_cast<LPVOID*>(&fpStrcmp));
+
+    // User32 UI
+    MH_CreateHook(&GetDlgItemTextA, &Hooked_GetDlgItemTextA, reinterpret_cast<LPVOID*>(&fpGetDlgItemTextA));
+
+    // Kernel32 Files
+    MH_CreateHook(&WriteFile, &Hooked_WriteFile, reinterpret_cast<LPVOID*>(&fpWriteFile));
+    // Add other hooks similarly ...
+
+    // Commit hooks
     MH_EnableHook(MH_ALL_HOOKS);
 }
 
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved){
-    switch (ul_reason_for_call) {
-        case DLL_PROCESS_ATTACH:
-            InstallHooks();
-            break;
-        case DLL_PROCESS_DETACH:
-            MH_Uninitialize();
-            break;
+// --- DLLMAIN Entry ---
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
+    if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
+        SetHooks();
     }
     return TRUE;
 }
