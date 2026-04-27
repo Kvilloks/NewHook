@@ -5,6 +5,9 @@
 #include <shlwapi.h>
 #include <tchar.h>
 #include <iostream>
+#include <fstream>
+#include <sstream>
+#include <mutex>
 #include <vector>
 #include <wincred.h>
 #include <wincrypt.h>
@@ -13,9 +16,39 @@
 #include <authz.h>
 #include "MinHook.h"
 
-
 #pragma comment(lib, "secur32.lib")
 #pragma comment(lib, "authz.lib")
+
+// ----------------------- ЛОГИРОВАНИЕ -----------------------
+std::ofstream& GetLogFile() {
+    static std::ofstream log("hooklog.txt", std::ios::app);
+    return log;
+}
+
+std::mutex& GetLogMutex() {
+    static std::mutex logMutex;
+    return logMutex;
+}
+
+inline std::string ws2s(const std::wstring& wstr) {
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), nullptr, 0, nullptr, nullptr);
+    std::string strTo(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), &strTo[0], size_needed, nullptr, nullptr);
+    return strTo;
+}
+
+inline void WriteLog(const std::string& msg) {
+    auto& log = GetLogFile();
+    auto& logMutex = GetLogMutex();
+    std::lock_guard<std::mutex> lock(logMutex);
+    log << msg << std::endl;
+    log.flush();
+}
+
+inline void WriteLogW(const std::wstring& msg) {
+    WriteLog(ws2s(msg));
+}
+
 // --- COMMON SIGNATURES ---
 
 // Интернет/HTTP
@@ -107,167 +140,173 @@ pRevertSecurityContext fpRevertSecurityContext = NULL;
 pAuthzInitializeResourceManager fpAuthzInitializeResourceManager = NULL;
 pAuthzAccessCheck    fpAuthzAccessCheck = NULL;
 
-// --- HOOKED FUNCTIONS (diagnostic logging only) ---
+// --- HOOKED FUNCTIONS (логирование в файл) ---
 
 // Интернет/HTTP
 HINTERNET WINAPI Hooked_InternetOpenUrlA(HINTERNET hInternet, LPCSTR lpszUrl, LPCSTR lpszHeaders,
     DWORD dwHeadersLength, DWORD dwFlags, DWORD_PTR dwContext) {
-    std::cout << "[HOOK] InternetOpenUrlA: " << (lpszUrl ? lpszUrl : "(null)") << std::endl;
+    WriteLog("[HOOK] InternetOpenUrlA: " + std::string(lpszUrl ? lpszUrl : "(null)"));
     return fpInternetOpenUrlA(hInternet, lpszUrl, lpszHeaders, dwHeadersLength, dwFlags, dwContext);
 }
 HINTERNET WINAPI Hooked_InternetOpenUrlW(HINTERNET hInternet, LPCWSTR lpszUrl, LPCWSTR lpszHeaders,
     DWORD dwHeadersLength, DWORD dwFlags, DWORD_PTR dwContext) {
-    std::wcout << L"[HOOK] InternetOpenUrlW: " << (lpszUrl ? lpszUrl : L"(null)") << std::endl;
+    WriteLogW(L"[HOOK] InternetOpenUrlW: " + std::wstring(lpszUrl ? lpszUrl : L"(null)"));
     return fpInternetOpenUrlW(hInternet, lpszUrl, lpszHeaders, dwHeadersLength, dwFlags, dwContext);
 }
 BOOL WINAPI Hooked_HttpSendRequestA(HINTERNET hRequest, LPCSTR lpszHeaders, DWORD dwHeadersLength,
     LPVOID lpOptional, DWORD dwOptionalLength) {
-    std::cout << "[HOOK] HttpSendRequestA" << std::endl;
+    WriteLog("[HOOK] HttpSendRequestA");
     return fpHttpSendRequestA(hRequest, lpszHeaders, dwHeadersLength, lpOptional, dwOptionalLength);
 }
 BOOL WINAPI Hooked_HttpSendRequestW(HINTERNET hRequest, LPCWSTR lpszHeaders, DWORD dwHeadersLength,
     LPVOID lpOptional, DWORD dwOptionalLength) {
-    std::wcout << L"[HOOK] HttpSendRequestW" << std::endl;
+    WriteLogW(L"[HOOK] HttpSendRequestW");
     return fpHttpSendRequestW(hRequest, lpszHeaders, dwHeadersLength, lpOptional, dwOptionalLength);
 }
 BOOL WINAPI Hooked_InternetReadFile(HINTERNET hFile, LPVOID lpBuffer, DWORD dwNumberOfBytesToRead, LPDWORD lpdwNumberOfBytesRead) {
-    std::cout << "[HOOK] InternetReadFile" << std::endl;
+    WriteLog("[HOOK] InternetReadFile");
     return fpInternetReadFile(hFile, lpBuffer, dwNumberOfBytesToRead, lpdwNumberOfBytesRead);
 }
 BOOL WINAPI Hooked_WinHttpSendRequest(HINTERNET hRequest, LPCWSTR pwszHeaders, DWORD dwHeadersLength,
     LPVOID lpOptional, DWORD dwOptionalLength, DWORD dwTotalLength, DWORD_PTR dwContext) {
-    std::wcout << L"[HOOK] WinHttpSendRequest" << std::endl;
+    WriteLogW(L"[HOOK] WinHttpSendRequest");
     return fpWinHttpSendRequest(hRequest, pwszHeaders, dwHeadersLength, lpOptional, dwOptionalLength, dwTotalLength, dwContext);
 }
 BOOL WINAPI Hooked_WinHttpReadData(HINTERNET hRequest, LPVOID lpBuffer, DWORD dwBytesToRead, LPDWORD lpdwBytesRead) {
-    std::cout << "[HOOK] WinHttpReadData" << std::endl;
+    WriteLog("[HOOK] WinHttpReadData");
     return fpWinHttpReadData(hRequest, lpBuffer, dwBytesToRead, lpdwBytesRead);
 }
 
 // Сравнение ключа
 int __cdecl Hooked_Strcmp(const char* s1, const char* s2) {
-    std::cout << "[HOOK] strcmp: " << (s1 ? s1 : "(null)") << " vs " << (s2 ? s2 : "(null)") << std::endl;
+    WriteLog("[HOOK] strcmp: " + std::string(s1 ? s1 : "(null)") + " vs " + std::string(s2 ? s2 : "(null)"));
     return fpStrcmp(s1, s2);
 }
 int __cdecl Hooked_Memcmp(const void* s1, const void* s2, size_t len) {
-    std::cout << "[HOOK] memcmp" << std::endl;
+    std::ostringstream oss;
+    oss << "[HOOK] memcmp, len=" << len;
+    WriteLog(oss.str());
     return fpMemcmp(s1, s2, len);
 }
 
 // UI
 UINT WINAPI Hooked_GetDlgItemTextA(HWND hDlg, int nIDDlgItem, LPSTR lpString, int nMaxCount) {
     UINT result = fpGetDlgItemTextA(hDlg, nIDDlgItem, lpString, nMaxCount);
-    std::cout << "[HOOK] GetDlgItemTextA: " << lpString << std::endl;
+    WriteLog("[HOOK] GetDlgItemTextA: " + std::string(lpString));
     return result;
 }
 UINT WINAPI Hooked_GetDlgItemTextW(HWND hDlg, int nIDDlgItem, LPWSTR lpString, int nMaxCount) {
     UINT result = fpGetDlgItemTextW(hDlg, nIDDlgItem, lpString, nMaxCount);
-    std::wcout << L"[HOOK] GetDlgItemTextW: " << lpString << std::endl;
+    WriteLogW(L"[HOOK] GetDlgItemTextW: " + std::wstring(lpString));
     return result;
 }
 BOOL WINAPI Hooked_SetWindowTextA(HWND hWnd, LPCSTR lpString) {
-    std::cout << "[HOOK] SetWindowTextA: " << (lpString ? lpString : "(null)") << std::endl;
+    WriteLog("[HOOK] SetWindowTextA: " + std::string(lpString ? lpString : "(null)"));
     return fpSetWindowTextA(hWnd, lpString);
 }
 BOOL WINAPI Hooked_SetWindowTextW(HWND hWnd, LPCWSTR lpString) {
-    std::wcout << L"[HOOK] SetWindowTextW: " << (lpString ? lpString : L"(null)") << std::endl;
+    WriteLogW(L"[HOOK] SetWindowTextW: " + std::wstring(lpString ? lpString : L"(null)"));
     return fpSetWindowTextW(hWnd, lpString);
 }
 
 // Файлы
 BOOL WINAPI Hooked_WriteFile(HANDLE hFile, LPCVOID lpBuffer, DWORD nNumberOfBytesToWrite, LPDWORD lpNumberOfBytesWritten, LPOVERLAPPED lpOverlapped) {
-    std::cout << "[HOOK] WriteFile, " << nNumberOfBytesToWrite << " bytes" << std::endl;
+    std::ostringstream oss;
+    oss << "[HOOK] WriteFile, bytes=" << nNumberOfBytesToWrite;
+    WriteLog(oss.str());
     return fpWriteFile(hFile, lpBuffer, nNumberOfBytesToWrite, lpNumberOfBytesWritten, lpOverlapped);
 }
 BOOL WINAPI Hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer, DWORD nNumberOfBytesToRead, LPDWORD lpNumberOfBytesRead, LPOVERLAPPED lpOverlapped) {
-    std::cout << "[HOOK] ReadFile, " << nNumberOfBytesToRead << " bytes" << std::endl;
+    std::ostringstream oss;
+    oss << "[HOOK] ReadFile, bytes=" << nNumberOfBytesToRead;
+    WriteLog(oss.str());
     return fpReadFile(hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
 }
 
 // Крипто/WinAPI (auth/crypto/credentials)
 BOOL WINAPI Hooked_LogonUserA(LPCSTR user, LPCSTR domain, LPCSTR pass, DWORD logonType, DWORD logonProvider, PHANDLE phToken) {
-    std::cout << "[HOOK] LogonUserA: " << (user ? user : "(null)") << std::endl;
+    WriteLog("[HOOK] LogonUserA: " + std::string(user ? user : "(null)"));
     return fpLogonUserA(user, domain, pass, logonType, logonProvider, phToken);
 }
 BOOL WINAPI Hooked_LogonUserW(LPCWSTR user, LPCWSTR domain, LPCWSTR pass, DWORD logonType, DWORD logonProvider, PHANDLE phToken) {
-    std::wcout << L"[HOOK] LogonUserW: " << (user ? user : L"(null)") << std::endl;
+    WriteLogW(L"[HOOK] LogonUserW: " + std::wstring(user ? user : L"(null)"));
     return fpLogonUserW(user, domain, pass, logonType, logonProvider, phToken);
 }
 BOOL WINAPI Hooked_CredWriteA(PCREDENTIALA cred, DWORD flags) {
-    std::cout << "[HOOK] CredWriteA" << std::endl;
+    WriteLog("[HOOK] CredWriteA");
     return fpCredWriteA(cred, flags);
 }
 BOOL WINAPI Hooked_CredWriteW(PCREDENTIALW cred, DWORD flags) {
-    std::wcout << L"[HOOK] CredWriteW" << std::endl;
+    WriteLog("[HOOK] CredWriteW");
     return fpCredWriteW(cred, flags);
 }
 BOOL WINAPI Hooked_CryptAcquireContextA(HCRYPTPROV* phProv, LPCSTR pszContainer, LPCSTR pszProvider, DWORD dwProvType, DWORD dwFlags) {
-    std::cout << "[HOOK] CryptAcquireContextA" << std::endl;
+    WriteLog("[HOOK] CryptAcquireContextA");
     return fpCryptAcquireContextA(phProv, pszContainer, pszProvider, dwProvType, dwFlags);
 }
 BOOL WINAPI Hooked_CryptAcquireContextW(HCRYPTPROV* phProv, LPCWSTR pszContainer, LPCWSTR pszProvider, DWORD dwProvType, DWORD dwFlags) {
-    std::wcout << L"[HOOK] CryptAcquireContextW" << std::endl;
+    WriteLogW(L"[HOOK] CryptAcquireContextW");
     return fpCryptAcquireContextW(phProv, pszContainer, pszProvider, dwProvType, dwFlags);
 }
 BOOL WINAPI Hooked_CryptReleaseContext(HCRYPTPROV hProv, DWORD dwFlags) {
-    std::cout << "[HOOK] CryptReleaseContext" << std::endl;
+    WriteLog("[HOOK] CryptReleaseContext");
     return fpCryptReleaseContext(hProv, dwFlags);
 }
 BOOL WINAPI Hooked_CryptDecrypt(HCRYPTKEY key, HCRYPTHASH hash, BOOL bFinal, DWORD dwFlags, BYTE* pbData, DWORD* pdwDataLen) {
-    std::cout << "[HOOK] CryptDecrypt" << std::endl;
+    WriteLog("[HOOK] CryptDecrypt");
     return fpCryptDecrypt(key, hash, bFinal, dwFlags, pbData, pdwDataLen);
 }
 BOOL WINAPI Hooked_CryptEncrypt(HCRYPTKEY key, HCRYPTHASH hash, BOOL bFinal, DWORD dwFlags, BYTE* pbData, DWORD* pdwDataLen, DWORD dwBufLen) {
-    std::cout << "[HOOK] CryptEncrypt" << std::endl;
+    WriteLog("[HOOK] CryptEncrypt");
     return fpCryptEncrypt(key, hash, bFinal, dwFlags, pbData, pdwDataLen, dwBufLen);
 }
 BOOL WINAPI Hooked_CryptVerifySignature(HCRYPTHASH hash, const BYTE* pbSignature, DWORD cbSignature, HCRYPTKEY hPubKey, LPCSTR sDescription, DWORD dwFlags) {
-    std::cout << "[HOOK] CryptVerifySignature" << std::endl;
+    WriteLog("[HOOK] CryptVerifySignature");
     return fpCryptVerifySignature(hash, pbSignature, cbSignature, hPubKey, sDescription, dwFlags);
 }
 SECURITY_STATUS WINAPI Hooked_AcquireCredentialsHandleA(
     LPSTR pszPrincipal, LPSTR pszPackage, ULONG fCredentialUse, PLUID pvLogonId, PVOID pAuthData,
     SEC_GET_KEY_FN pGetKeyFn, PVOID pvGetKeyArgument, PCredHandle phCredential, PTimeStamp ptsExpiry) {
-    std::cout << "[HOOK] AcquireCredentialsHandleA" << std::endl;
+    WriteLog("[HOOK] AcquireCredentialsHandleA");
     return fpAcquireCredentialsHandleA(pszPrincipal, pszPackage, fCredentialUse, pvLogonId, pAuthData, pGetKeyFn, pvGetKeyArgument, phCredential, ptsExpiry);
 }
 SECURITY_STATUS WINAPI Hooked_AcquireCredentialsHandleW(
     LPWSTR pszPrincipal, LPWSTR pszPackage, ULONG fCredentialUse, PLUID pvLogonId, PVOID pAuthData,
     SEC_GET_KEY_FN pGetKeyFn, PVOID pvGetKeyArgument, PCredHandle phCredential, PTimeStamp ptsExpiry) {
-    std::wcout << L"[HOOK] AcquireCredentialsHandleW" << std::endl;
+    WriteLogW(L"[HOOK] AcquireCredentialsHandleW");
     return fpAcquireCredentialsHandleW(pszPrincipal, pszPackage, fCredentialUse, pvLogonId, pAuthData, pGetKeyFn, pvGetKeyArgument, phCredential, ptsExpiry);
 }
 SECURITY_STATUS WINAPI Hooked_AcceptSecurityContext(PCredHandle phCredential, PCtxtHandle phContext, PSecBufferDesc pInput,
     ULONG fContextReq, ULONG TargetDataRep, PCtxtHandle phNewContext, PSecBufferDesc pOutput, PULONG pfContextAttr, PTimeStamp ptsExpiry) {
-    std::cout << "[HOOK] AcceptSecurityContext" << std::endl;
+    WriteLog("[HOOK] AcceptSecurityContext");
     return fpAcceptSecurityContext(phCredential, phContext, pInput, fContextReq, TargetDataRep, phNewContext, pOutput, pfContextAttr, ptsExpiry);
 }
 SECURITY_STATUS WINAPI Hooked_InitializeSecurityContextA(PCredHandle phCredential, PCtxtHandle phContext, SEC_CHAR* pszTargetName,
     ULONG fContextReq, ULONG Reserved1, ULONG TargetDataRep, PSecBufferDesc pInput,
     ULONG Reserved2, PCtxtHandle phNewContext, PSecBufferDesc pOutput, PULONG pfContextAttr, PTimeStamp ptsExpiry) {
-    std::cout << "[HOOK] InitializeSecurityContextA" << std::endl;
+    WriteLog("[HOOK] InitializeSecurityContextA");
     return fpInitializeSecurityContextA(phCredential, phContext, pszTargetName, fContextReq, Reserved1, TargetDataRep, pInput, Reserved2, phNewContext, pOutput, pfContextAttr, ptsExpiry);
 }
 SECURITY_STATUS WINAPI Hooked_InitializeSecurityContextW(PCredHandle phCredential, PCtxtHandle phContext, SEC_WCHAR* pszTargetName,
     ULONG fContextReq, ULONG Reserved1, ULONG TargetDataRep, PSecBufferDesc pInput,
     ULONG Reserved2, PCtxtHandle phNewContext, PSecBufferDesc pOutput, PULONG pfContextAttr, PTimeStamp ptsExpiry) {
-    std::wcout << L"[HOOK] InitializeSecurityContextW" << std::endl;
+    WriteLogW(L"[HOOK] InitializeSecurityContextW");
     return fpInitializeSecurityContextW(phCredential, phContext, pszTargetName, fContextReq, Reserved1, TargetDataRep, pInput, Reserved2, phNewContext, pOutput, pfContextAttr, ptsExpiry);
 }
 SECURITY_STATUS WINAPI Hooked_ImpersonateSecurityContext(PCtxtHandle phContext) {
-    std::cout << "[HOOK] ImpersonateSecurityContext" << std::endl;
+    WriteLog("[HOOK] ImpersonateSecurityContext");
     return fpImpersonateSecurityContext(phContext);
 }
 SECURITY_STATUS WINAPI Hooked_RevertSecurityContext(PCtxtHandle phContext) {
-    std::cout << "[HOOK] RevertSecurityContext" << std::endl;
+    WriteLog("[HOOK] RevertSecurityContext");
     return fpRevertSecurityContext(phContext);
 }
 BOOL WINAPI Hooked_AuthzInitializeResourceManager(DWORD flags, PFN_AUTHZ_DYNAMIC_ACCESS_CHECK fn1, PFN_AUTHZ_COMPUTE_DYNAMIC_GROUPS fn2, PFN_AUTHZ_FREE_DYNAMIC_GROUPS fn3, PCWSTR sz, PAUTHZ_RESOURCE_MANAGER_HANDLE handle) {
-    std::wcout << L"[HOOK] AuthzInitializeResourceManager" << std::endl;
+    WriteLogW(L"[HOOK] AuthzInitializeResourceManager");
     return fpAuthzInitializeResourceManager(flags, fn1, fn2, fn3, sz, handle);
 }
 BOOL WINAPI Hooked_AuthzAccessCheck(DWORD flags, AUTHZ_CLIENT_CONTEXT_HANDLE ctx, PAUTHZ_ACCESS_REQUEST req, AUTHZ_AUDIT_EVENT_HANDLE audit, PSECURITY_DESCRIPTOR sd, PSECURITY_DESCRIPTOR* pSidArray, DWORD count, PAUTHZ_ACCESS_REPLY reply, PAUTHZ_ACCESS_CHECK_RESULTS_HANDLE result) {
-    std::cout << "[HOOK] AuthzAccessCheck" << std::endl;
+    WriteLog("[HOOK] AuthzAccessCheck");
     return fpAuthzAccessCheck(flags, ctx, req, audit, sd, pSidArray, count, reply, result);
 }
 
