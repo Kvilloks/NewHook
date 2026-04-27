@@ -13,6 +13,9 @@
 #include <authz.h>
 #include "MinHook.h"
 
+
+#pragma comment(lib, "secur32.lib")
+#pragma comment(lib, "authz.lib")
 // --- COMMON SIGNATURES ---
 
 // Интернет/HTTP
