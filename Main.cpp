@@ -8,6 +8,7 @@
 #include <vector>
 #include <wincred.h>
 #include <wincrypt.h>
+#define SECURITY_WIN32
 #include <security.h>
 #include <authz.h>
 #include "MinHook.h"
@@ -182,7 +183,7 @@ BOOL WINAPI Hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer, DWORD nNumberOfBytesT
 
 // Крипто/WinAPI (auth/crypto/credentials)
 BOOL WINAPI Hooked_LogonUserA(LPCSTR user, LPCSTR domain, LPCSTR pass, DWORD logonType, DWORD logonProvider, PHANDLE phToken) {
-    std::cout << "[HOOK] LogonUserA: " << user << std::endl;
+    std::cout << "[HOOK] LogonUserA: " << (user ? user : "(null)") << std::endl;
     return fpLogonUserA(user, domain, pass, logonType, logonProvider, phToken);
 }
 BOOL WINAPI Hooked_LogonUserW(LPCWSTR user, LPCWSTR domain, LPCWSTR pass, DWORD logonType, DWORD logonProvider, PHANDLE phToken) {
