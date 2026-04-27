@@ -1,86 +1,137 @@
+#define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
+#include <wininet.h>
+#include <winhttp.h>
 #include <stdio.h>
-#include <tlhelp32.h>
+#include <tchar.h>
 #include "MinHook.h"
 
-// Логфайл
-FILE* logfile = nullptr;
+typedef BOOL(WINAPI* LPFN_InternetReadFile)(HINTERNET, LPVOID, DWORD, LPDWORD);
+typedef HINTERNET(WINAPI* LPFN_InternetOpenUrlA)(HINTERNET, LPCSTR, LPCSTR, DWORD, DWORD, DWORD_PTR);
+typedef HINTERNET(WINAPI* LPFN_InternetOpenUrlW)(HINTERNET, LPCWSTR, LPCWSTR, DWORD, DWORD, DWORD_PTR);
+typedef BOOL(WINAPI* LPFN_HttpSendRequestA)(HINTERNET, LPCSTR, DWORD, LPVOID, DWORD);
+typedef BOOL(WINAPI* LPFN_HttpSendRequestW)(HINTERNET, LPCWSTR, DWORD, LPVOID, DWORD);
+typedef BOOL(WINAPI* LPFN_WinHttpSendRequest)(HINTERNET, LPCWSTR, DWORD, LPCWSTR, DWORD, DWORD, DWORD_PTR);
+typedef BOOL(WINAPI* LPFN_WinHttpReadData)(HINTERNET, LPVOID, DWORD, LPDWORD);
 
-// Прототипы оригинальных функций
-typedef int (WINAPI* SEND)(SOCKET, const char*, int, int);
-typedef int (WINAPI* WSASEND)(SOCKET, LPWSABUF, DWORD, LPDWORD, DWORD, LPVOID, LPWSAOVERLAPPED_COMPLETION_ROUTINE);
+typedef int(__cdecl *LPFN_strcmp)(const char*, const char*);
+typedef int(__cdecl *LPFN_memcmp)(const void*, const void*, size_t);
 
-SEND orig_send = nullptr;
-WSASEND orig_wsasend = nullptr;
+typedef UINT(WINAPI* LPFN_GetDlgItemTextA)(HWND, int, LPSTR, int);
+typedef UINT(WINAPI* LPFN_GetDlgItemTextW)(HWND, int, LPWSTR, int);
+typedef BOOL(WINAPI* LPFN_SetWindowTextA)(HWND, LPCSTR);
+typedef BOOL(WINAPI* LPFN_SetWindowTextW)(HWND, LPCWSTR);
 
-// Hook для send
-int WINAPI hook_send(SOCKET s, const char* buf, int len, int flags) {
-    fprintf(logfile, "[SEND] Buf: %.*s\n", len, buf);
-    fflush(logfile);
-    // Поиск ключевых слов
-    if (strstr(buf, "key") || strstr(buf, "token") || strstr(buf, "license")) {
-        fprintf(logfile, "[KEYWORD] Найден возможный ключ: %.*s\n", len, buf);
-    }
-    return orig_send(s, buf, len, flags);
+typedef BOOL(WINAPI* LPFN_WriteFile)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
+typedef BOOL(WINAPI* LPFN_ReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
+
+// Реализация перехватов (логирование для примера)
+
+BOOL WINAPI hk_InternetReadFile(HINTERNET h, LPVOID buf, DWORD len, LPDWORD read) {
+    printf("[HOOK] InternetReadFile called\n");
+    static LPFN_InternetReadFile orig = (LPFN_InternetReadFile)MH_GetOriginalFunction(&hk_InternetReadFile);
+    return orig(h, buf, len, read);
+}
+HINTERNET WINAPI hk_InternetOpenUrlA(HINTERNET h, LPCSTR url, LPCSTR headers, DWORD hl, DWORD fl, DWORD_PTR ctx) {
+    printf("[HOOK] InternetOpenUrlA: %s\n", url);
+    static LPFN_InternetOpenUrlA orig = (LPFN_InternetOpenUrlA)MH_GetOriginalFunction(&hk_InternetOpenUrlA);
+    return orig(h, url, headers, hl, fl, ctx);
+}
+HINTERNET WINAPI hk_InternetOpenUrlW(HINTERNET h, LPCWSTR url, LPCWSTR headers, DWORD hl, DWORD fl, DWORD_PTR ctx) {
+    wprintf(L"[HOOK] InternetOpenUrlW: %s\n", url);
+    static LPFN_InternetOpenUrlW orig = (LPFN_InternetOpenUrlW)MH_GetOriginalFunction(&hk_InternetOpenUrlW);
+    return orig(h, url, headers, hl, fl, ctx);
+}
+BOOL WINAPI hk_HttpSendRequestA(HINTERNET h, LPCSTR hdr, DWORD lh, LPVOID opt, DWORD lo) {
+    printf("[HOOK] HttpSendRequestA: header=%s\n", hdr ? hdr : "");
+    static LPFN_HttpSendRequestA orig = (LPFN_HttpSendRequestA)MH_GetOriginalFunction(&hk_HttpSendRequestA);
+    return orig(h, hdr, lh, opt, lo);
+}
+BOOL WINAPI hk_HttpSendRequestW(HINTERNET h, LPCWSTR hdr, DWORD lh, LPVOID opt, DWORD lo) {
+    wprintf(L"[HOOK] HttpSendRequestW: header=%ls\n", hdr ? hdr : L"");
+    static LPFN_HttpSendRequestW orig = (LPFN_HttpSendRequestW)MH_GetOriginalFunction(&hk_HttpSendRequestW);
+    return orig(h, hdr, lh, opt, lo);
+}
+BOOL WINAPI hk_WinHttpSendRequest(HINTERNET h, LPCWSTR hdrs, DWORD hl, LPCWSTR opt, DWORD ol, DWORD tc, DWORD_PTR ctx) {
+    wprintf(L"[HOOK] WinHttpSendRequest: headers=%ls\n", hdrs ? hdrs : L"");
+    static LPFN_WinHttpSendRequest orig = (LPFN_WinHttpSendRequest)MH_GetOriginalFunction(&hk_WinHttpSendRequest);
+    return orig(h, hdrs, hl, opt, ol, tc, ctx);
+}
+BOOL WINAPI hk_WinHttpReadData(HINTERNET h, LPVOID buf, DWORD len, LPDWORD read) {
+    printf("[HOOK] WinHttpReadData\n");
+    static LPFN_WinHttpReadData orig = (LPFN_WinHttpReadData)MH_GetOriginalFunction(&hk_WinHttpReadData);
+    return orig(h, buf, len, read);
+}
+int __cdecl hk_strcmp(const char* a, const char* b) {
+    printf("[HOOK] strcmp: '%s' vs '%s'\n", a, b);
+    static LPFN_strcmp orig = (LPFN_strcmp)MH_GetOriginalFunction(&hk_strcmp);
+    return orig(a, b);
+}
+int __cdecl hk_memcmp(const void* a, const void* b, size_t cnt) {
+    printf("[HOOK] memcmp called: %zu bytes\n", cnt);
+    static LPFN_memcmp orig = (LPFN_memcmp)MH_GetOriginalFunction(&hk_memcmp);
+    return orig(a, b, cnt);
+}
+UINT WINAPI hk_GetDlgItemTextA(HWND wnd, int id, LPSTR buf, int sz) {
+    UINT ret = ((LPFN_GetDlgItemTextA)MH_GetOriginalFunction(&hk_GetDlgItemTextA))(wnd, id, buf, sz);
+    printf("[HOOK] GetDlgItemTextA id=%d, result='%s'\n", id, buf);
+    return ret;
+}
+UINT WINAPI hk_GetDlgItemTextW(HWND wnd, int id, LPWSTR buf, int sz) {
+    UINT ret = ((LPFN_GetDlgItemTextW)MH_GetOriginalFunction(&hk_GetDlgItemTextW))(wnd, id, buf, sz);
+    wprintf(L"[HOOK] GetDlgItemTextW id=%d, result='%ls'\n", id, buf);
+    return ret;
+}
+BOOL WINAPI hk_SetWindowTextA(HWND wnd, LPCSTR txt) {
+    printf("[HOOK] SetWindowTextA: %s\n", txt);
+    return ((LPFN_SetWindowTextA)MH_GetOriginalFunction(&hk_SetWindowTextA))(wnd, txt);
+}
+BOOL WINAPI hk_SetWindowTextW(HWND wnd, LPCWSTR txt) {
+    wprintf(L"[HOOK] SetWindowTextW: %ls\n", txt);
+    return ((LPFN_SetWindowTextW)MH_GetOriginalFunction(&hk_SetWindowTextW))(wnd, txt);
+}
+BOOL WINAPI hk_WriteFile(HANDLE h, LPCVOID buf, DWORD sz, LPDWORD wr, LPOVERLAPPED ovl) {
+    printf("[HOOK] WriteFile: %u bytes\n", sz);
+    return ((LPFN_WriteFile)MH_GetOriginalFunction(&hk_WriteFile))(h, buf, sz, wr, ovl);
+}
+BOOL WINAPI hk_ReadFile(HANDLE h, LPVOID buf, DWORD sz, LPDWORD rd, LPOVERLAPPED ovl) {
+    printf("[HOOK] ReadFile: %u bytes\n", sz);
+    return ((LPFN_ReadFile)MH_GetOriginalFunction(&hk_ReadFile))(h, buf, sz, rd, ovl);
 }
 
-// Hook для WSASend
-int WINAPI hook_wsasend(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount, LPDWORD lpNumberOfBytesSent,
-                        DWORD dwFlags, LPVOID lpOverlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) {
-    for (DWORD i = 0; i < dwBufferCount; ++i) {
-        fprintf(logfile, "[WSASend] [%u/%u] Buf: %.*s\n", i + 1, dwBufferCount, lpBuffers[i].len, lpBuffers[i].buf);
-        // Ищем ключи
-        if (strstr((const char*)lpBuffers[i].buf, "key") || strstr((const char*)lpBuffers[i].buf, "license")) {
-            fprintf(logfile, "[KEYWORD] Найден ключ в буфере WSASend!\n");
-        }
-    }
-    fflush(logfile);
-    return orig_wsasend(s, lpBuffers, dwBufferCount, lpNumberOfBytesSent, dwFlags, lpOverlapped, lpCompletionRoutine);
-}
-
-// Хук загрузки модулей (LoadLibraryA)
-typedef HMODULE (WINAPI* LOADLIBRARYA)(LPCSTR);
-LOADLIBRARYA orig_loadlibrarya = nullptr;
-HMODULE WINAPI hook_loadlibrarya(LPCSTR lpLibFileName) {
-    fprintf(logfile, "[LOADMODULE] %s\n", lpLibFileName);
-    fflush(logfile);
-    return orig_loadlibrarya(lpLibFileName);
-}
-
-// Отдельная функция: вывести все модули процесса
-void DumpModules() {
-    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
-    MODULEENTRY32 me;
-    me.dwSize = sizeof(me);
-    if (Module32First(hSnapshot, &me)) {
-        do {
-            fprintf(logfile, "[MODULE] %ws - 0x%p\n", me.szModule, me.modBaseAddr);
-        } while (Module32Next(hSnapshot, &me));
-    }
-    CloseHandle(hSnapshot);
-}
-
-// Установка хуков
-void SetupHooks() {
+void InstallHooks() {
     MH_Initialize();
-    MH_CreateHookApi(L"Ws2_32.dll", "send", &hook_send, (LPVOID*)&orig_send);
-    MH_CreateHookApi(L"Ws2_32.dll", "WSASend", &hook_wsasend, (LPVOID*)&orig_wsasend);
-    MH_CreateHookApi(L"kernel32.dll", "LoadLibraryA", &hook_loadlibrarya, (LPVOID*)&orig_loadlibrarya);
+    // Перехват функций Internet/WinHTTP
+    MH_CreateHookApi(L"wininet.dll", "InternetOpenUrlA", hk_InternetOpenUrlA, NULL);
+    MH_CreateHookApi(L"wininet.dll", "InternetOpenUrlW", hk_InternetOpenUrlW, NULL);
+    MH_CreateHookApi(L"wininet.dll", "InternetReadFile", hk_InternetReadFile, NULL);
+    MH_CreateHookApi(L"wininet.dll", "HttpSendRequestA", hk_HttpSendRequestA, NULL);
+    MH_CreateHookApi(L"wininet.dll", "HttpSendRequestW", hk_HttpSendRequestW, NULL);
+    MH_CreateHookApi(L"winhttp.dll", "WinHttpSendRequest", hk_WinHttpSendRequest, NULL);
+    MH_CreateHookApi(L"winhttp.dll", "WinHttpReadData", hk_WinHttpReadData, NULL);
+    // Перехват функций сравнения
+    MH_CreateHook(&strcmp, hk_strcmp, NULL);
+    MH_CreateHook(&memcmp, hk_memcmp, NULL);
+    // UI
+    MH_CreateHookApi(L"user32.dll", "GetDlgItemTextA", hk_GetDlgItemTextA, NULL);
+    MH_CreateHookApi(L"user32.dll", "GetDlgItemTextW", hk_GetDlgItemTextW, NULL);
+    MH_CreateHookApi(L"user32.dll", "SetWindowTextA", hk_SetWindowTextA, NULL);
+    MH_CreateHookApi(L"user32.dll", "SetWindowTextW", hk_SetWindowTextW, NULL);
+    // Работа с файлами
+    MH_CreateHookApi(L"kernel32.dll", "WriteFile", hk_WriteFile, NULL);
+    MH_CreateHookApi(L"kernel32.dll", "ReadFile", hk_ReadFile, NULL);
+    // Активируем все хуки.
     MH_EnableHook(MH_ALL_HOOKS);
 }
 
-// Точка входа (DLL main)
-BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpReserved) {
-    if (fdwReason == DLL_PROCESS_ATTACH) {
-        fopen_s(&logfile, "hook_extensive.log", "a+");
-        if (logfile) {
-            DumpModules(); // Выводим все стартовые модули!
-            SetupHooks();
-        }
-    }
-    else if (fdwReason == DLL_PROCESS_DETACH) {
-        MH_Uninitialize();
-        if (logfile) fclose(logfile);
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved){
+    switch (ul_reason_for_call) {
+        case DLL_PROCESS_ATTACH:
+            InstallHooks();
+            break;
+        case DLL_PROCESS_DETACH:
+            MH_Uninitialize();
+            break;
     }
     return TRUE;
 }
